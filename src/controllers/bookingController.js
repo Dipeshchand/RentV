@@ -10,9 +10,31 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    const vehicle = await Vehicle.findById(vehicleId).populate("owner");
-    if (!vehicle || !vehicle.isAvailable) {
-      return res.status(400).json({ message: "Vehicle not available" });
+    // const vehicle = await Vehicle.findById(vehicleId).populate("owner");
+    // if (!vehicle || !vehicle.isAvailable) {
+    //   return res.status(400).json({ message: "Vehicle not available" });
+    // }
+
+    // Atomically reserve the vehicle
+    const vehicle = await Vehicle.findOneAndUpdate(
+      {
+        _id: vehicleId,
+        isAvailable: true,
+      },
+      {
+        $set: {
+          isAvailable: false,
+        },
+      },
+      {
+        new: true,
+      },
+    ).populate("owner");
+
+    if (!vehicle) {
+      return res.status(400).json({
+        message: "Vehicle is no longer available",
+      });
     }
 
     const hours =
@@ -24,7 +46,7 @@ exports.createBooking = async (req, res) => {
     }
 
     const totalAmount = Math.ceil(hours * vehicle.pricePerHour);
-    // have to know the meaning of totalAmount that what is this 
+    // have to know the meaning of totalAmount that what is this
 
     const booking = await Booking.create({
       student: req.user._id,
@@ -44,7 +66,6 @@ exports.createBooking = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-
 
 // Owner views all booking requests for their vehicles
 exports.getOwnerBookings = async (req, res) => {
@@ -92,7 +113,7 @@ exports.updateBookingStatus = async (req, res) => {
 
     res.json({
       message: `Booking ${status}`,
-      booking
+      booking,
     });
   } catch (error) {
     console.error("Update Booking Error:", error);
