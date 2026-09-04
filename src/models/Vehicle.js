@@ -34,9 +34,9 @@ const vehicleSchema = new mongoose.Schema(
       required: true,
     },
 
-    image: {
-      type: String,
-      default: "",
+    images: {
+      type: [String],
+      default: [],
     },
 
     isAvailable: {
