@@ -47,4 +47,7 @@ const vehicleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+//Indexes 
+vehicleSchema.index({isAvailable:1});
+vehicleSchema.index({ isAvailable: 1, vehicleType: 1 });
 module.exports = mongoose.model("Vehicle", vehicleSchema);

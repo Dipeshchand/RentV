@@ -7,15 +7,26 @@ exports.createBooking = async (req, res) => {
     const { vehicleId, startTime, endTime } = req.body;
 
     if (!vehicleId || !startTime || !endTime) {
-      return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({
+        message: "All fields are required",
+      });
     }
 
-    // const vehicle = await Vehicle.findById(vehicleId).populate("owner");
-    // if (!vehicle || !vehicle.isAvailable) {
-    //   return res.status(400).json({ message: "Vehicle not available" });
-    // }
+    // 1. Validate time first
+    const start = new Date(startTime);
+    const end = new Date(endTime);
 
-    // Atomically reserve the vehicle
+    const hours =
+      (end.getTime() - start.getTime()) /
+      (1000 * 60 * 60);
+
+    if (hours <= 0) {
+      return res.status(400).json({
+        message: "Invalid time range",
+      });
+    }
+
+    // 2. Now check/reserve vehicle
     const vehicle = await Vehicle.findOneAndUpdate(
       {
         _id: vehicleId,
@@ -28,7 +39,7 @@ exports.createBooking = async (req, res) => {
       },
       {
         new: true,
-      },
+      }
     ).populate("owner");
 
     if (!vehicle) {
@@ -37,23 +48,18 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    const hours =
-      (new Date(endTime).getTime() - new Date(startTime).getTime()) /
-      (1000 * 60 * 60);
+    // 3. Calculate amount
+    const totalAmount = Math.ceil(
+      hours * vehicle.pricePerHour
+    );
 
-    if (hours <= 0) {
-      return res.status(400).json({ message: "Invalid time range" });
-    }
-
-    const totalAmount = Math.ceil(hours * vehicle.pricePerHour);
-    // have to know the meaning of totalAmount that what is this
-
+    // 4. Create booking
     const booking = await Booking.create({
       student: req.user._id,
       owner: vehicle.owner._id,
       vehicle: vehicle._id,
-      startTime,
-      endTime,
+      startTime: start,
+      endTime: end,
       totalAmount,
     });
 
@@ -61,9 +67,13 @@ exports.createBooking = async (req, res) => {
       message: "Booking request created",
       booking,
     });
+
   } catch (error) {
     console.error("Create Booking Error:", error);
-    return res.status(500).json({ message: "Server error" });
+
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 };
 
