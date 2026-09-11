@@ -1,8 +1,11 @@
 const Booking = require("../models/Booking");
 const Vehicle = require("../models/Vehicle");
+const mongoose = require("mongoose");
 
 // Student creates booking
 exports.createBooking = async (req, res) => {
+  const session = await mongoose.startSession();
+
   try {
     const { vehicleId, startTime, endTime } = req.body;
 
@@ -12,55 +15,88 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    // 1. Validate time first
     const start = new Date(startTime);
     const end = new Date(endTime);
+
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({
+        message: "Invalid date format",
+      });
+    }
+
+    if (end <= start) {
+      return res.status(400).json({
+        message: "End time must be after start time",
+      });
+    }
 
     const hours =
       (end.getTime() - start.getTime()) /
       (1000 * 60 * 60);
 
-    if (hours <= 0) {
-      return res.status(400).json({
-        message: "Invalid time range",
-      });
-    }
+    let booking;
 
-    // 2. Now check/reserve vehicle
-    const vehicle = await Vehicle.findOneAndUpdate(
-      {
-        _id: vehicleId,
-        isAvailable: true,
-      },
-      {
-        $set: {
-          isAvailable: false,
-        },
-      },
-      {
-        new: true,
+    await session.withTransaction(async () => {
+
+      // 1. Find the vehicle and lock the document
+      const vehicle = await Vehicle.findById(vehicleId)
+        .populate("owner")
+        .session(session);
+
+      if (!vehicle) {
+        throw new Error("VEHICLE_NOT_FOUND");
       }
-    ).populate("owner");
 
-    if (!vehicle) {
-      return res.status(400).json({
-        message: "Vehicle is no longer available",
-      });
-    }
+      // 2. Touch the vehicle inside this transaction.
+      // This makes concurrent transactions for this vehicle
+      // serialize when the write is committed.
+      await Vehicle.updateOne(
+        { _id: vehicleId },
+        { $set: { updatedAt: new Date() } },
+        { session }
+      );
 
-    // 3. Calculate amount
-    const totalAmount = Math.ceil(
-      hours * vehicle.pricePerHour
-    );
+      // 3. Check for overlapping bookings
+      const conflictingBooking = await Booking.findOne({
+        vehicle: vehicleId,
+        status: {
+          $in: ["pending", "accepted"],
+        },
+        startTime: {
+          $lt: end,
+        },
+        endTime: {
+          $gt: start,
+        },
+      }).session(session);
 
-    // 4. Create booking
-    const booking = await Booking.create({
-      student: req.user._id,
-      owner: vehicle.owner._id,
-      vehicle: vehicle._id,
-      startTime: start,
-      endTime: end,
-      totalAmount,
+      if (conflictingBooking) {
+        throw new Error("BOOKING_CONFLICT");
+      }
+
+      // 4. Calculate price
+      const totalAmount = Math.ceil(
+        hours * vehicle.pricePerHour
+      );
+
+      // 5. Create booking
+      const createdBookings = await Booking.create(
+        [
+          {
+            student: req.user._id,
+            owner: vehicle.owner._id,
+            vehicle: vehicle._id,
+            startTime: start,
+            endTime: end,
+            totalAmount,
+            status: "pending",
+          },
+        ],
+        { session }
+      );
+
+      booking = createdBookings[0];
     });
 
     return res.status(201).json({
@@ -69,11 +105,27 @@ exports.createBooking = async (req, res) => {
     });
 
   } catch (error) {
+
+    if (error.message === "VEHICLE_NOT_FOUND") {
+      return res.status(404).json({
+        message: "Vehicle not found",
+      });
+    }
+
+    if (error.message === "BOOKING_CONFLICT") {
+      return res.status(409).json({
+        message: "Vehicle is already booked for this time slot",
+      });
+    }
+
     console.error("Create Booking Error:", error);
 
     return res.status(500).json({
       message: "Server error",
     });
+
+  } finally {
+    await session.endSession();
   }
 };
 
