@@ -42,12 +42,16 @@ const vehicleSchema = new mongoose.Schema(
     isAvailable: {
       type: Boolean,
       default: true,
-    }
+    },
+    bookingVersion: {
+      type: Number,
+      default: 0,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-//Indexes 
-vehicleSchema.index({isAvailable:1});
+//Indexes
+vehicleSchema.index({ isAvailable: 1 });
 vehicleSchema.index({ isAvailable: 1, vehicleType: 1 });
 module.exports = mongoose.model("Vehicle", vehicleSchema);
